@@ -11,14 +11,15 @@
 ## * Google   (https://developers.google.com/speed/libraries/)
 ##
 ## Example:
-##  $ cdnget                                # list public CDN
-##  $ cdnget [-q] cdnjs                     # list libraries (except jsdelivr/unpkg)
-##  $ cdnget [-q] cdnjs '*jquery*'          # search libraries
-##  $ cdnget [-q] cdnjs jquery              # list versions
-##  $ cdnget [-q] cdnjs jquery latest       # detect latest version
-##  $ cdnget [-q] cdnjs jquery 3.6.0        # list files
-##  $ mkdir -p static/lib                   # create a directory
+##  $ cdnget                                	 # list public CDN
+##  $ cdnget [-q] cdnjs                     	 # list libraries (except jsdelivr/unpkg)
+##  $ cdnget [-q] cdnjs '*jquery*'          	 # search libraries
+##  $ cdnget [-q] cdnjs jquery              	 # list versions
+##  $ cdnget [-q] cdnjs jquery latest       	 # detect latest version
+##  $ cdnget [-q] cdnjs jquery 3.6.0        	 # list files
+##  $ mkdir -p static/lib                        # create a directory
 ##  $ cdnget [-q] cdnjs jquery 3.6.0 static/lib  # download files
+##  $ cdnget cdndirect url static/lib            # download single file
 ##
 
 require 'open-uri'
@@ -33,8 +34,7 @@ require 'pp'
 module CDNGet
 
 
-  RELEASE = '$Release: 1.1.0 $'.split()[1]
-
+  RELEASE = '$Release: 1.2.0 $'.split()[1]
 
   class HttpConnection
 
@@ -284,48 +284,66 @@ module CDNGet
       return libs.sort_by {|d| d[:name] }.uniq
     end
 
-    def find(library)
-      validate(library, nil)
-      jstr = fetch("#{API_URL}/#{library}", library)
-      jdata = JSON.parse(jstr)
-      _debug_print(jdata)
-      versions = jdata['assets'].collect {|d| d['version'] }\
-                   .sort_by {|v| v.split(/[-.]/).map(&:to_i) }
-      return {
-        name: library,
-        desc: jdata['description'],
-        tags: (jdata['keywords'] || []).join(", "),
-        site: jdata['homepage'],
-        info: File.join(SITE_URL, "/libraries/#{library}"),
-        license: jdata['license'],
-        versions: versions.reverse(),
-      }
-    end
+    def find(library, version = nil)
+	  validate(library, nil)
+	  jstr = fetch("#{API_URL}/#{library}", library)
+	  jdata = JSON.parse(jstr)
+
+	  versions = jdata['versions']
+	  
+	  if version
+		# If a version is specified, filter by it
+		version = version.strip
+		if versions.include?(version)
+		  versions = [version]
+		else
+		  puts "Version #{version} not found for #{library}"
+		  return
+		end
+	  end
+
+	  return {
+		name: library,
+		desc: jdata['description'],
+		tags: (jdata['keywords'] || []).join(", "),
+		site: jdata['homepage'],
+		info: File.join(SITE_URL, "/libraries/#{library}"),
+		license: jdata['license'],
+		versions: versions.reverse(),
+	  }
+	end
 
     def get(library, version)
-      validate(library, version)
-      jstr = fetch("#{API_URL}/#{library}", library)
-      jdata = JSON.parse(jstr)
-      _debug_print(jdata)
-      d = jdata['assets'].find {|d| d['version'] == version }  or
-        raise CommandError.new("#{library}/#{version}: Library or version not found.")
+	  validate(library, version)
+
+	  # Construct the URL to fetch
+	  url = "https://api.cdnjs.com/libraries/#{library}/#{version}"
+
+	  # Fetch the data
+	  jstr = fetch(url, library)
+
+	  jdata = JSON.parse(jstr)
+
+	  raw_files = jdata['rawFiles']
       baseurl = "#{CDN_URL}/#{library}/#{version}/"
-      return {
-        name:     library,
-        version:  version,
-        desc:     jdata['description'],
-        tags:     (jdata['keywords'] || []).join(", "),
-        site:     jdata['homepage'],
-        info:     File.join(SITE_URL, "/libraries/#{library}/#{version}"),
-        urls:     d['files'].collect {|s| baseurl + s },
-        files:    d['files'],
-        baseurl:  baseurl,
-        license:  jdata['license'],
-      }
-    end
+	  file_urls = raw_files.map { |file| baseurl + file }
+      
+
+	  return {
+		name: library,
+		version: version,
+		desc: jdata['description'],
+		tags: (jdata['keywords'] || []).join(", "),
+		site: jdata['homepage'],
+		info: File.join(SITE_URL, "/libraries/#{library}/#{version}"),
+		urls: file_urls,
+		files: raw_files,
+		baseurl: baseurl,
+		license: jdata['license'],
+	  }
+	end
 
   end
-
 
   class JSDelivr < Base
     CODE = "jsdelivr"
@@ -697,34 +715,59 @@ END
       exit 1
     end
 
-    def run(*args)
-      cmdopts = parse_cmdopts(args, "hvq", ["help", "version", "quiet", "debug"])
-      return help_message() if cmdopts['h'] || cmdopts['help']
-      return RELEASE + "\n" if cmdopts['v'] || cmdopts['version']
-      @quiet = cmdopts['quiet'] || cmdopts['q']
-      @debug_mode = cmdopts['debug']
-      case args.length
-      when 0
-        return do_list_cdns()
-      when 1
-        cdn_code = args[0]
-        return do_list_libraries(cdn_code)
-      when 2
-        cdn_code, library = args
-        return library.include?('*') \
-               ? do_search_libraries(cdn_code, library) \
-               : do_find_library(cdn_code, library)
-      when 3
-        cdn_code, library, version = args
-        return do_get_library(cdn_code, library, version)
-      when 4
-        cdn_code, library, version, basedir = args
-        do_download_library(cdn_code, library, version, basedir)
-        return ""
-      else
-        raise CommandError.new("'#{args[4]}': Too many arguments.")
-      end
+  def run(*args)
+    cmdopts = parse_cmdopts(args, "hvq", ["help", "version", "quiet", "debug"])
+    return help_message() if cmdopts['h'] || cmdopts['help']
+    return RELEASE + "\n" if cmdopts['v'] || cmdopts['version']
+    @quiet = cmdopts['quiet'] || cmdopts['q']
+    @debug_mode = cmdopts['debug']
+
+    # Handle cdndirect command separately
+    if args[0] == 'cdndirect' && args[1].start_with?('http')
+      url, basedir = args[1], args[2]
+      return do_download_single_file(url, basedir)
     end
+
+    case args.length
+    when 0
+      return do_list_cdns()
+    when 1
+      cdn_code = args[0]
+      return do_list_libraries(cdn_code)
+    when 2
+      cdn_code, library = args
+      return library.include?('*') \
+             ? do_search_libraries(cdn_code, library) \
+             : do_find_library(cdn_code, library)
+    when 3
+      cdn_code, library, version = args
+      return do_get_library(cdn_code, library, version)
+    when 4
+      cdn_code, library, version, basedir = args
+      do_download_library(cdn_code, library, version, basedir)
+      return ""
+    else
+      raise CommandError.new("'#{args[4]}': Too many arguments.")
+    end
+  end
+
+  def do_download_single_file(url, basedir)
+    uri = URI.parse(url)
+    http = HttpConnection.new(uri)
+    content = http.get(uri)
+    content = content.force_encoding('ascii-8bit')
+    filename = File.basename(uri.path)
+    absolute_basedir = File.expand_path(basedir, Dir.pwd)
+    filepath = File.join(absolute_basedir, filename)
+    FileUtils.mkdir_p(absolute_basedir) unless File.exist?(absolute_basedir)
+    File.open(filepath, 'wb') {|f| f.write(content) }
+    puts "#{filepath} ... Done (#{format_integer(content.bytesize)} byte)"
+    http.close()
+  end
+
+  def format_integer(value)
+    return value.to_s.reverse.scan(/..?.?/).collect {|s| s.reverse }.reverse.join(',')
+  end
 
     def parse_cmdopts(cmdargs, short_opts, long_opts)
       cmdopts = {}

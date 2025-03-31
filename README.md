@@ -1,7 +1,7 @@
 CDNget
 ======
 
-($Release: 1.1.0 $)
+($Release: 1.2.0 $)
 
 CDNget is a utility script to download files from CDNJS, jsDelivr, UNPKG or Google.
 
@@ -31,6 +31,7 @@ Usage
     $ cdnget [-q] cdnjs jquery 2.2.0       # list library files
     $ mkdir -p static/lib                  # create a directory
     $ cdnget [-q] cdnjs jquery 2.2.0 static/lib  # download files
+    $ cdnget cdndirect url static/lib            # download single file
     static/lib/jquery/2.2.0/jquery.js ... Done (258,388 byte)
     static/lib/jquery/2.2.0/jquery.min.js ... Done (85,589 byte)
     static/lib/jquery/2.2.0/jquery.min.map ... Done (129,544 byte)
