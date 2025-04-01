@@ -325,6 +325,8 @@ module CDNGet
 	  jdata = JSON.parse(jstr)
 
 	  raw_files = jdata['rawFiles']
+      # Filter out .cjs files as it results in a 403 error
+      raw_files.reject! { |file| file.end_with?('.cjs') }
       baseurl = "#{CDN_URL}/#{library}/#{version}/"
 	  file_urls = raw_files.map { |file| baseurl + file }
       
